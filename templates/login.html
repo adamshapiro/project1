@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+
+{% block body %}
+<form action="{{url_for( 'sign_in ', new_user=new_user)}}" method="post">
+    <span>Username:</span><input type="text" name="username" placeholder="Enter a username...">
+    <span>Password:</span><input type="text" name="password" placeholder="Enter a password...">
+    {% if new_user %}
+        <span>Confirm Password:</span><input type="text" name="Confirm" placeholder="Reenter your password...">
+    {% endif %}
+    <button type="submit" value="Submit"></button>
+</form>
+
+{% if not new_user %}
+    Creating a new account? <a href="{{url_for( 'login', new_user=True )}}"></a>
+{% endif %}
+{% endblock %}
