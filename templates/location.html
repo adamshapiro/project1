@@ -39,10 +39,10 @@
 
     <br><br>
 
-    {% if check_ins|length > 0 %}
-        <h3>Check Ins: {{ check_ins|length }}</h3>
+    {% if location.check_ins|length > 0 %}
+        <h3>Check Ins: {{ location.check_ins|length }}</h3>
         <ul class="list-group-flush">
-            {% for check_in in check_ins %}
+            {% for check_in in location.check_ins %}
                 {% if check_in.message|length > 0 %}
                     <li class="list-group-item">{{ check_in.message }}</li>
                 {% endif %}

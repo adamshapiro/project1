@@ -3,8 +3,7 @@ from datetime import datetime
 
 from flask import Flask, session, render_template, redirect, url_for, request, flash, jsonify, abort
 from flask_session import Session
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
+from models import *
 
 app = Flask(__name__)
 
@@ -18,8 +17,9 @@ app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
 # Set up database
-engine = create_engine(os.getenv("DATABASE_URL"))
-db = scoped_session(sessionmaker(bind=engine))
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db.init_app(app)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -32,8 +32,9 @@ def index():
     if request.method == "POST":
         method = request.form["method"]
         search = request.form['search'].upper()
-        select = f"SELECT * FROM locations WHERE {method} LIKE :s LIMIT 20"
-        locs = db.execute(select, {"s": f"%{search}%"}).fetchall()
+        locs = Location.query.filter(
+                getattr(Location, method).like(f"%{search}%")
+            ).limit(20).all()
         if len(locs) == 0:
             flash("We couldn't find any locations matching that information!", "danger")
 
@@ -52,12 +53,11 @@ def logout():
 @app.route("/sign_in", methods=["POST"])
 def sign_in():
     username = request.form["username"]
-    password = str.encode(request.form["password"])
+    password = request.form["password"].encode()
 
-    db_user = db.execute("SELECT * FROM users WHERE username=:uname",
-        {"uname": username}).fetchone()
+    db_user = User.query.filter_by(username=username).first()
 
-    if not db_user or not bcrypt.checkpw(password, db_user["password"].encode()):
+    if not db_user or not bcrypt.checkpw(password, db_user.password.encode()):
         flash("Your username and/or password is incorrect!", "danger")
         return render_template("login.html")
 
@@ -68,27 +68,28 @@ def sign_in():
 @app.route("/sign_up", methods=["POST"])
 def sign_up():
     username = request.form["username"]
-    password = str.encode(request.form["password"])
-    confirm = str.encode(request.form["confirm"])
+    password = request.form["password"].encode()
+    confirm = request.form["confirm"].encode()
+
+    if len(username) == 0 or len(password) == 0:
+        flash("You must enter a username and password.", "danger")
+        return render_template("login.html", new_user=True)
 
     if password != confirm:
         flash("Your password and confirmation do not match!", "danger")
         return render_template("login.html", new_user=True)
 
-    if db.execute("SELECT * FROM users WHERE username=:uname", {"uname": username}).rowcount > 0:
+    if User.query.filter_by(username=username).first():
         flash("That username is taken!", "danger")
         return render_template("login.html", new_user=True)
 
     hashed = bcrypt.hashpw(password, bcrypt.gensalt())
-    db.execute("INSERT INTO users (username, password) VALUES (:uname, :pw)",
-        {"uname": username, "pw": hashed.decode()})
-    db.commit()
+    res = User(username=username, password=hashed.decode())
+    db.session.add(res)
+    db.session.commit()
 
-    new_user = db.execute("SELECT * FROM users WHERE username=:uname",
-        {"uname": username}).fetchone()
-
-    session["user_id"] = new_user.id
-    session["username"] = new_user.username
+    session["user_id"] = res.id
+    session["username"] = username
     return redirect(url_for("index"))
 
 @app.route("/<int:id>")
@@ -96,51 +97,51 @@ def location(id):
     if not "user_id" in session:
         return redirect(url_for( 'login' ))
 
-    loc = db.execute("SELECT * FROM locations WHERE id=:id",
-        {"id": id}).fetchone()
-
-    print(loc)
+    loc = Location.query.get(id)
 
     if loc is None:
         flash("No such location could not be found.", "danger")
         return redirect(url_for('index'))
 
-    check_ins = db.execute("SELECT message FROM check_ins WHERE location_id=:id",
-        {"id": id}).fetchall()
-
-    query = requests.get(f"https://api.darksky.net/forecast/644dbdc3d30b81ecd8f71b0da4d17d09/{loc.latitude},{loc.longitude}").json()
+    query = requests.\
+        get(f"https://api.darksky.net/forecast/644dbdc3d30b81ecd8f71b0da4d17d09/{loc.latitude},{loc.longitude}").json()
 
     weather = query["currently"]
     time = datetime.fromtimestamp(weather["time"]).strftime("%Y-%m-%d %I:%M %p")
-    return render_template("location.html", location=loc, check_ins=check_ins, weather=weather, time=time)
+    return render_template("location.html", location=loc, weather=weather, time=time)
 
 @app.route("/check_in", methods=["POST"])
 def check_in():
     check = request.form
-    if db.execute("SELECT user_id FROM check_ins WHERE location_id=:lid AND user_id=:uid",
-        {"lid": check["id"], "uid": session["user_id"]}).fetchone():
+    if Check_In.query.filter(and_(
+        Check_In.location_id == check["id"],
+        Check_In.user_id == session["user_id"]
+    )).first():
         flash("You have already checked into this location!", "danger")
         return redirect(url_for('location', id=check["id"]))
-    db.execute("INSERT INTO check_ins (location_id, user_id, message) VALUES (:lid, :uid, :m)",
-        {"lid": check["id"], "uid": session["user_id"], "m": check["message"]})
-    db.commit()
+
+    new_check = Check_In(
+        location_id=check["id"],
+        user_id=session["user_id"],
+        message=check["message"]
+    )
+    db.session.add(new_check)
+    db.session.commit()
     return redirect(url_for('location', id=check["id"]))
 
 
 @app.route("/api/<string:zip>")
 def zip(zip):
-    query = db.execute("SELECT locations.*, COUNT(check_ins.*) FROM locations JOIN check_ins ON check_ins.location_id=locations.id WHERE locations.zip=:z GROUP BY locations.id",
-        {"z": zip}).fetchone()
+    query = Location.query.filter_by(zip=zip).first()
     if query is None:
         return abort(404)
 
-    data = {
+    return jsonify({
         "place_name": query.city,
         "state": query.state,
         "latitude": query.latitude,
         "longitude": query.longitude,
         "zip": zip,
         "population": query.population,
-        "check_ins": query.count
-    }
-    return jsonify(data)
+        "check_ins": len(query.check_ins)
+    })
