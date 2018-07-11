@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block body %}
+    <h1 class="display-3">Search For Locations:</h1>
+    <form class="form-inline" action="{{ url_for('index') }}" method="post">
+        <label class="mr-2" for="formText">Search:</label>
+        <input type="text" id="formText" class="form-control mr-2" name="search" placeholder="Search By Location" {% if search %} value="{{ search }}" {% endif %}>
+
+
+        <select class="form-control mr-2" name="method">
+            <option selected value="zip">Zip Code</option>
+            <option value="city">City</option>
+            <option value="state">State</option>
+        </select>
+
+        <button type="submit" class="btn btn-outline-success">Search</button>
+    </form>
+
+    {% if locations %}
+        <h3>Locations:</h3>
+
+        <table class="table table-striped">
+            <thead>
+                <th scope="col">Zip Code</th>
+                <th scope="col">City</th>
+                <th scope="col">State</th>
+                <th scope="col">Details</th>
+            </thead>
+            <tbody>
+            {% for location in locations %}
+                <tr>
+                    <th scope="row">{{ location.zip }}</th>
+                    <td>{{ location.city }}</td>
+                    <td>{{ location.state }}</td>
+                    <td><a href="{{ url_for('location', id=location.id) }}" class="btn btn-info" role="button">More Details</a></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}
