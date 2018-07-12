@@ -1,5 +1,6 @@
 Flask
 Flask-Session
+Flask-SQLAlchemy
 psycopg2
 SQLAlchemy
 bcrypt
